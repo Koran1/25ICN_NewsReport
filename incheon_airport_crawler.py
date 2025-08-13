@@ -3,6 +3,7 @@ import json
 import re
 import base64
 import urllib.parse
+import os
 from urllib.parse import urljoin, urlparse, parse_qs
 import requests
 from bs4 import BeautifulSoup
@@ -128,14 +129,35 @@ def parse_article(url):
 
 # find_next_page_url 함수 제거 - 더 이상 필요하지 않음
 
-def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json"):
+def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json", start_page=1):
     """
     max_pages: 목록 페이지 몇 쪽까지 순회할지 (None이면 자동으로 모든 페이지 탐색)
     delay: 각 요청 사이 대기(초)
+    start_page: 시작 페이지 번호 (이어서 크롤링할 때 사용)
     """
     seen_ids = set()
     articles = []
-    current_page = 1
+    current_page = start_page
+    
+    # 기존 파일이 있으면 로드해서 이어서 크롤링
+    if start_page > 1 and os.path.exists(out_json):
+        try:
+            with open(out_json, "r", encoding="utf-8") as f:
+                existing_data = json.load(f)
+                articles = existing_data.get("articles", [])
+                # 기존 ID들을 seen_ids에 추가
+                for article in articles:
+                    if "url" in article:
+                        # URL에서 ID 추출
+                        m = re.search(r"/bbs/co_ko/84/(\d+)/artclView\.do", article["url"])
+                        if m:
+                            seen_ids.add(m.group(1))
+            print(f"DEBUG: 기존 데이터 로드 완료 - {len(articles)}개 보도자료, {len(seen_ids)}개 ID")
+        except Exception as e:
+            print(f"DEBUG: 기존 파일 로드 실패: {e}")
+            # 실패하면 새로 시작
+            articles = []
+            seen_ids = set()
 
     while True:
         # 동적으로 URL 생성
@@ -196,10 +218,13 @@ def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json"):
     return {"count": len(articles), "json": out_json}
 
 if __name__ == "__main__":
-    # 옵션 1: 모든 페이지 자동 탐색 (글 항목이 0개가 될 때까지)
-    result = crawl(max_pages=None, delay=0.8)
+    # 옵션 1: 219페이지부터 이어서 크롤링 (모든 페이지 자동 탐색)
+    result = crawl(max_pages=None, delay=0.8, start_page=219)
     
     # 옵션 2: 특정 페이지까지만 수집 (예: 10페이지)
-    # result = crawl(max_pages=10, delay=0.8)
+    # result = crawl(max_pages=10, delay=0.8, start_page=1)
+    
+    # 옵션 3: 모든 페이지 처음부터 크롤링
+    # result = crawl(max_pages=None, delay=0.8, start_page=1)
     
     print(result)
