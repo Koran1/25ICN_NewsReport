@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "newreport"
+version = "0.1.0"
+description = "Smart News Application"
+authors = [{name = "jblim", email = "jblim@mobigen.com"}]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.9.2",
+    "pydantic-settings>=2.6.1",
+    "PyYAML>=6.0.2",
+    "asyncpg>=0.30.0",
+    "minio>=7.2.0",
+    "requests>=2.32.3",
+    "BeautifulSoup4>=4.13.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-mock>=3.14.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.yml", "*.yaml", "*.json"]

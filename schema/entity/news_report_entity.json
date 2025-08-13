@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "News Report Entity",
+  "description": "Schema for a news report entity.",
+  "type": "object",
+  "x-python-package": "schema.entity",
+  "x-python-class-name": "NewsReportEntity",
+  "properties": {
+    "id": {
+      "description": "The unique identifier for a report.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "press_release_type": {
+      "description": "Type of press release.",
+      "type": "string"
+    },
+    "report_date": {
+      "description": "The distribution or creation date of the report.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "title": {
+      "description": "The title of the report.",
+      "type": "string"
+    },
+    "subtitle": {
+      "description": "The subtitle of the report.",
+      "type": "string"
+    },
+    "summary": {
+      "description": "The main summary of the report (optional).",
+      "type": "string"
+    },
+    "department": {
+      "description": "The department in charge.",
+      "type": "string"
+    },
+    "person_in_charge": {
+      "description": "The person in charge.",
+      "type": "string"
+    },
+    "content": {
+      "description": "The main content of the report.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "numerical_data": {
+      "description": "Optional list of numerical data.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "press_release_type",
+    "report_date",
+    "title",
+    "department",
+    "person_in_charge",
+    "content"
+  ]
+}

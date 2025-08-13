@@ -5,3 +5,9 @@ results/
 check_result.py
 .conda/
 .venv/
+
+# IDEs
+.idea/
+.vscode/
+
+

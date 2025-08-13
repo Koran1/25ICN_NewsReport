@@ -1,2 +1,21 @@
 requests>=2.31.0
 typing-extensions>=4.0.0
+
+datamodel-code-generator==0.32.0
+asyncpg==0.30.0
+
+pydantic==2.9.2
+pydantic_core==2.23.4
+pydantic-settings~=2.6.1
+PyYAML==6.0.2
+requests==2.32.3
+BeautifulSoup4==4.13.3
+urllib3==2.3.0
+pandas==2.2.3
+numpy==2.2.3
+
+# Testing packages
+pytest>=8.2.0
+pytest-asyncio>=0.24.0
+pytest-mock>=3.14.0
+minio>=7.2.0

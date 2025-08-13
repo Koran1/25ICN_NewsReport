@@ -1,0 +1,32 @@
+# Smart News Application Configuration
+
+# Logging Configuration
+logging:
+  level: INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s | %(levelname)s | %(name)s:%(filename)s:%(lineno)d - %(message)s"
+  console_output: true
+  file_output: false
+  log_file: "logs/smart-news.log"
+
+# Application Configuration
+app:
+  name: "News Crawler"
+  version: "0.1.0"
+  debug: false
+
+# Database Configuration (if needed)
+database:
+  host: "192.168.109.254"
+  port: 5432
+  database: "graphio"
+  database_schema: "smart_news"
+  user: "root"
+  password: "biris.manse"
+
+minio:
+  host: "192.168.109.254"
+  port: 31345
+  access_key: "root"
+  secret_key: "biris.manse"
+  bucket: "news-reports"
+  secure: false
