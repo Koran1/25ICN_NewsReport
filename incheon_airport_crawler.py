@@ -4,7 +4,7 @@ import re
 import base64
 import urllib.parse
 import os
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
@@ -44,8 +44,6 @@ def get_soup(url):
 def extract_articles_from_list(soup):
     """목록 페이지에서 (제목, 상세URL) 등 1차 정보를 뽑는다."""
     rows = []
-    # 게시글 리스트 영역 찾기
-    table = soup.find("div", id=lambda x: x and "bbs" in x.lower()) or soup
     # 제목 링크: /bbs/co_ko/84/{id}/artclView.do
     for a in soup.find_all("a", href=True):
         href = a["href"]
@@ -99,106 +97,139 @@ def extract_title_from_content(content):
     
     return None
 
-def clean_content(content):
-    """content에서 제목, 작성일, 조회수 부분을 제거합니다."""
-    if not content:
-        return content
-    
-    lines = content.split('\n')
-    cleaned_lines = []
-    
-    # 작성일, 조회수 관련 라인들을 건너뛰기
-    skip_next_line = False
-    
-    for i, line in enumerate(lines):
-        # 작성일, 조회수 라인 건너뛰기
-        if line.strip() == '작성일' or line.strip() == '조회수':
-            skip_next_line = True
-            continue
-        
-        # 작성일, 조회수 다음 라인 (날짜, 숫자) 건너뛰기
-        if skip_next_line:
-            skip_next_line = False
-            continue
-        
-        # 날짜 패턴이 있는 라인 건너뛰기
-        if re.search(r'^\d{4}\.\d{2}\.\d{2}$', line.strip()):
-            continue
-        
-        # 조회수 숫자 라인 건너뛰기
-        if re.search(r'^\d+$', line.strip()) and i > 0 and lines[i-1].strip() == '조회수':
-            continue
-        
-        # 첫 번째 줄에서 제목 부분 제거 (작성일 이전까지)
-        if i == 0:
-            # "작성일" 이전까지의 제목 부분 제거
-            title_end = re.search(r'작성일\s*\d{4}\.\d{2}\.\d{2}', line)
-            if title_end:
-                # 작성일 이후 내용이 있으면 추가
-                remaining = line[title_end.end():].strip()
-                if remaining and not re.search(r'조회수\s*\d+', remaining):
-                    cleaned_lines.append(remaining)
-            else:
-                # 작성일 패턴이 없으면 조회수 이후 내용만 추가
-                view_count_end = re.search(r'조회수\s*\d+', line)
-                if view_count_end:
-                    remaining = line[view_count_end.end():].strip()
-                    if remaining:
-                        cleaned_lines.append(remaining)
-        else:
-            # 나머지 줄들은 그대로 추가
-            cleaned_lines.append(line)
-    
-    return '\n'.join(cleaned_lines).strip()
+
 
 def parse_body_structure(content_node):
     """본문을 header, sub-header, content로 분류합니다."""
     if not content_node:
         return {"header": None, "sub-header": None, "content": None}
     
+    # 테이블 위치를 추적하기 위한 리스트 (순서와 텍스트를 함께 저장)
+    table_positions = []
+    
+    # 테이블들을 찾아서 순서대로 위치를 기록
+    for i, table in enumerate(content_node.find_all('table')):
+        # 테이블의 텍스트 내용
+        table_text = table.get_text(strip=True)
+        if table_text:
+            table_positions.append((i, table_text))
+    
     # 전체 텍스트를 먼저 추출
     full_text = content_node.get_text(strip=True)
     
-    # header: color가 있는 span, p 태그들 찾기
+    # header와 sub-header 요소들을 찾기
     header_elements = []
+    sub_header_elements = []
     header_texts = set()  # header 텍스트들을 set으로 관리
+    sub_header_texts = set()  # sub-header 텍스트들을 set으로 관리
     
-    for tag in content_node.find_all(['span', 'p']):
-        style = tag.get('style', '')
-        if 'color:' in style.lower():
-            text = tag.get_text(strip=True)
-            if text:
-                header_elements.append(text)
-                header_texts.add(text)
+    # 이미 처리된 텍스트를 추적하기 위한 set
+    processed_texts = set()
     
-    # header 텍스트들을 하나로 합치기
+    for tag in content_node.find_all(['span', 'p', 'div']):
+        text = tag.get_text(strip=True)
+        
+        if not text or text in processed_texts:
+            continue
+        
+        # 현재 태그와 모든 하위 태그의 스타일을 확인
+        all_styles = []
+        all_styles.append(tag.get('style', ''))
+        
+        # 하위 span 태그들의 스타일도 확인
+        for child_span in tag.find_all('span'):
+            all_styles.append(child_span.get('style', ''))
+        
+        # 모든 스타일을 하나로 합치기
+        combined_style = ' '.join(all_styles)
+        
+        # color style이 있는지 확인 (더 포괄적으로)
+        has_color_style = 'color:' in combined_style.lower() or 'color=' in combined_style.lower()
+        
+        # center 정렬이 있는지 확인 (더 포괄적으로)
+        has_center_align = ('text-align: center' in combined_style.lower() or 
+                           'text-align:center' in combined_style.lower() or
+                           'text-align: center;' in combined_style.lower() or
+                           'align="center"' in str(tag).lower() or
+                           'align=center' in str(tag).lower())
+        
+        if has_color_style and has_center_align:
+            # color style이 있고 center 정렬이 있으면 header
+            header_elements.append(text)
+            header_texts.add(text)
+            processed_texts.add(text)
+        elif has_center_align and not has_color_style:
+            # color style이 없고 center 정렬이 있으면 sub-header
+            sub_header_elements.append(text)
+            sub_header_texts.add(text)
+            processed_texts.add(text)
+    
+    # header와 sub-header 텍스트들을 하나로 합치기
     header_combined = ' '.join(header_elements) if header_elements else ""
+    sub_header_combined = ' '.join(sub_header_elements) if sub_header_elements else ""
     
-    # content: 전체 텍스트에서 header 텍스트 제거
+    # content: 전체 텍스트에서 header와 sub-header 텍스트 제거
     content_text = full_text
     for header_text in header_texts:
         content_text = content_text.replace(header_text, "")
+    for sub_header_text in sub_header_texts:
+        content_text = content_text.replace(sub_header_text, "")
     
     # content 텍스트 정리 (연속된 공백 제거)
     content_text = re.sub(r'\s+', ' ', content_text).strip()
     
-    # header와 content를 문장 단위로 분리
+    # header, sub-header, content를 문장 단위로 분리
     def split_sentences(text):
         if not text:
             return None
         
+        # 날짜나 숫자 뒤의 마침표는 문장 끝이 아니므로 임시로 다른 문자로 치환
+        # 예: "25. 05." -> "25@ 05@", "2023. 12. 31." -> "2023@ 12@ 31@"
+        temp_text = re.sub(r'(\d+)\.', r'\1@', text)
+        
         # 문장 단위로 분리 (마침표, 느낌표, 물음표 기준)
-        sentences = re.split(r'[.!?]+', text)
+        sentences = re.split(r'[.!?]+', temp_text)
         sentences = [s.strip() for s in sentences if s.strip()]
         
-        return sentences if sentences else None
+        # 임시 문자를 다시 마침표로 복원
+        restored_sentences = []
+        for sentence in sentences:
+            restored_sentence = re.sub(r'(\d+)@', r'\1.', sentence)
+            restored_sentences.append(restored_sentence)
+        
+        return restored_sentences if restored_sentences else None
     
     header_sentences = split_sentences(header_combined)
+    sub_header_sentences = split_sentences(sub_header_combined)
     content_sentences = split_sentences(content_text)
+    
+    # content 문장들에 테이블 표기를 순서대로 삽입
+    if content_sentences and table_positions:
+        # 테이블이 나타나는 순서대로 content 문장들 사이에 {table1}, {table2} 등으로 삽입
+        final_content = []
+        table_count = len(table_positions)
+        content_count = len(content_sentences)
+        
+        if table_count <= content_count:
+            # 테이블 개수가 content 문장 개수보다 적거나 같은 경우
+            for i in range(content_count):
+                final_content.append(content_sentences[i])
+                if i < table_count:
+                    final_content.append(f"{{table{i+1}}}")
+        else:
+            # 테이블 개수가 content 문장 개수보다 많은 경우
+            for i in range(content_count):
+                final_content.append(content_sentences[i])
+                final_content.append(f"{{table{i+1}}}")
+            # 남은 테이블들을 뒤에 추가
+            for j in range(table_count - content_count):
+                final_content.append(f"{{table{content_count + j + 1}}}")
+        
+        content_sentences = final_content
     
     return {
         "header": header_sentences,
-        "sub-header": None,  # sub-header는 null로 설정
+        "sub-header": sub_header_sentences,
         "content": content_sentences
     }
 
@@ -255,28 +286,7 @@ def parse_article(url):
     # 테이블 정보 수집
     tables = parse_tables(main_content_node) if main_content_node else []
     
-    # 첨부파일 수집
-    attachments = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "download.do" in href:
-            link_text = a.get_text(strip=True)
-            if link_text and link_text != "미리보기":
-                if re.search(r"\.(hwp|pdf|docx?|xlsx?|pptx?|jpg|jpeg|png|gif|bmp|zip|rar|txt)$", link_text, re.I):
-                    if href.startswith('/'):
-                        file_url = urljoin(BASE, href)
-                    elif href.startswith('http'):
-                        file_url = href
-                    else:
-                        file_url = urljoin(url, href)
-                    
-                    filename = link_text
-                    if not any(att["url"] == file_url for att in attachments):
-                        attachments.append({
-                            "filename": filename,
-                            "url": file_url,
-                            "type": link_text.split('.')[-1].lower() if '.' in link_text else "unknown"
-                        })
+
 
     # 데이터 정리
     if not title:
@@ -300,7 +310,6 @@ def parse_article(url):
         "url": url,
         "body": body,
         "tables": tables,
-        "attachments": attachments,
     }
 
 
@@ -409,11 +418,11 @@ if __name__ == "__main__":
     # result = crawl(max_pages=None, delay=1.0, start_page=1)
     
     # 옵션 2: 특정 페이지까지만 수집 (예: 10페이지)
-    # result = crawl(max_pages=10, delay=0.8, start_page=1)
+    result = crawl(max_pages=134, delay=0.8, start_page=1)
     
     # 옵션 3: 특정 페이지부터 이어서 크롤링 (기존 데이터 유지)
     # result = crawl(max_pages=None, delay=1.0, start_page=334)
     
     # 옵션 4: 테스트용 (1페이지만)
-    result = crawl(max_pages=1, delay=0.5, start_page=1)
+    # result = crawl(max_pages=1, delay=0.5, start_page=1)
     
