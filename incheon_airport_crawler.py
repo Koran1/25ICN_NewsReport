@@ -62,6 +62,95 @@ def extract_articles_from_list(soup):
         uniq[r["id"]] = r
     return list(uniq.values())
 
+def clean_title(title):
+    """title에서 작성일, 조회수 정보를 제거하고 실제 제목만 남깁니다."""
+    if not title:
+        return None
+    
+    # "작성일", "조회수" 이후의 내용 제거
+    patterns = [
+        r'\s*작성일\s*\d{4}\.\d{2}\.\d{2}\s*조회수\s*\d+.*$',
+        r'\s*작성일\s*\d{4}\.\d{2}\.\d{2}.*$',
+        r'\s*조회수\s*\d+.*$'
+    ]
+    
+    cleaned_title = title
+    for pattern in patterns:
+        cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
+    
+    return cleaned_title.strip()
+
+def extract_title_from_content(content):
+    """content에서 제목을 추출합니다."""
+    if not content:
+        return None
+    
+    # content의 첫 번째 줄에서 제목 추출
+    lines = content.split('\n')
+    if lines:
+        first_line = lines[0].strip()
+        # "작성일" 이전까지가 제목
+        title_match = re.match(r'^(.+?)(?:\s*작성일\s*\d{4}\.\d{2}\.\d{2})', first_line)
+        if title_match:
+            return clean_title(title_match.group(1).strip())
+        else:
+            # 작성일 패턴이 없으면 첫 번째 줄 전체를 제목으로
+            return clean_title(first_line)
+    
+    return None
+
+def clean_content(content):
+    """content에서 제목, 작성일, 조회수 부분을 제거합니다."""
+    if not content:
+        return content
+    
+    lines = content.split('\n')
+    cleaned_lines = []
+    
+    # 작성일, 조회수 관련 라인들을 건너뛰기
+    skip_next_line = False
+    
+    for i, line in enumerate(lines):
+        # 작성일, 조회수 라인 건너뛰기
+        if line.strip() == '작성일' or line.strip() == '조회수':
+            skip_next_line = True
+            continue
+        
+        # 작성일, 조회수 다음 라인 (날짜, 숫자) 건너뛰기
+        if skip_next_line:
+            skip_next_line = False
+            continue
+        
+        # 날짜 패턴이 있는 라인 건너뛰기
+        if re.search(r'^\d{4}\.\d{2}\.\d{2}$', line.strip()):
+            continue
+        
+        # 조회수 숫자 라인 건너뛰기
+        if re.search(r'^\d+$', line.strip()) and i > 0 and lines[i-1].strip() == '조회수':
+            continue
+        
+        # 첫 번째 줄에서 제목 부분 제거 (작성일 이전까지)
+        if i == 0:
+            # "작성일" 이전까지의 제목 부분 제거
+            title_end = re.search(r'작성일\s*\d{4}\.\d{2}\.\d{2}', line)
+            if title_end:
+                # 작성일 이후 내용이 있으면 추가
+                remaining = line[title_end.end():].strip()
+                if remaining and not re.search(r'조회수\s*\d+', remaining):
+                    cleaned_lines.append(remaining)
+            else:
+                # 작성일 패턴이 없으면 조회수 이후 내용만 추가
+                view_count_end = re.search(r'조회수\s*\d+', line)
+                if view_count_end:
+                    remaining = line[view_count_end.end():].strip()
+                    if remaining:
+                        cleaned_lines.append(remaining)
+        else:
+            # 나머지 줄들은 그대로 추가
+            cleaned_lines.append(line)
+    
+    return '\n'.join(cleaned_lines).strip()
+
 def parse_article(url):
     """상세 페이지 파싱: 제목, 날짜, 본문, 첨부 파일 링크 수집"""
     soup = get_soup(url)
@@ -119,6 +208,21 @@ def parse_article(url):
                             "type": link_text.split('.')[-1].lower() if '.' in link_text else "unknown"
                         })
 
+    # 데이터 정리
+    # title이 없거나 비어있는 경우 content에서 추출
+    if not title:
+        extracted_title = extract_title_from_content(content)
+        if extracted_title:
+            title = extracted_title
+    
+    # title 정리 (작성일, 조회수 제거)
+    if title:
+        title = clean_title(title)
+    
+    # content 정리 (제목, 작성일, 조회수 부분 제거)
+    if content:
+        content = clean_content(content)
+    
     return {
         "title": title or None,
         "date": date or None,
@@ -138,6 +242,16 @@ def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json", start_page=1
     seen_ids = set()
     articles = []
     current_page = start_page
+    
+    # 1페이지부터 시작하는 경우 기존 데이터 백업
+    if start_page == 1 and os.path.exists(out_json):
+        backup_filename = f"{out_json}.backup_{time.strftime('%Y%m%d_%H%M%S')}"
+        try:
+            import shutil
+            shutil.copy2(out_json, backup_filename)
+            print(f"DEBUG: 기존 데이터 백업 완료: {backup_filename}")
+        except Exception as e:
+            print(f"DEBUG: 백업 실패: {e}")
     
     # 기존 파일이 있으면 로드해서 이어서 크롤링
     if start_page > 1 and os.path.exists(out_json):
@@ -218,13 +332,17 @@ def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json", start_page=1
     return {"count": len(articles), "json": out_json}
 
 if __name__ == "__main__":
-    # 옵션 1: 219페이지부터 이어서 크롤링 (모든 페이지 자동 탐색)
-    result = crawl(max_pages=None, delay=0.8, start_page=219)
+    # ===== 크롤링 옵션 설정 =====
+    
+    # 옵션 1: 1페이지부터 새로 시작 (기존 데이터 백업 후 새로 크롤링)
+    result = crawl(max_pages=None, delay=1.0, start_page=1)
     
     # 옵션 2: 특정 페이지까지만 수집 (예: 10페이지)
     # result = crawl(max_pages=10, delay=0.8, start_page=1)
     
-    # 옵션 3: 모든 페이지 처음부터 크롤링
-    # result = crawl(max_pages=None, delay=0.8, start_page=1)
+    # 옵션 3: 특정 페이지부터 이어서 크롤링 (기존 데이터 유지)
+    # result = crawl(max_pages=None, delay=1.0, start_page=334)
     
-    print(result)
+    # 옵션 4: 테스트용 (5페이지만)
+    # result = crawl(max_pages=5, delay=0.5, start_page=1)
+    
