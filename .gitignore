@@ -3,4 +3,5 @@ raw/
 results/
 *.xlsx
 check_result.py
-
+.conda/
+.venv/
