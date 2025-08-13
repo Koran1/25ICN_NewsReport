@@ -151,45 +151,118 @@ def clean_content(content):
     
     return '\n'.join(cleaned_lines).strip()
 
+def parse_body_structure(content_node):
+    """본문을 header, sub-header, content로 분류합니다."""
+    if not content_node:
+        return {"header": None, "sub-header": None, "content": None}
+    
+    # 전체 텍스트를 먼저 추출
+    full_text = content_node.get_text(strip=True)
+    
+    # header: color가 있는 span, p 태그들 찾기
+    header_elements = []
+    header_texts = set()  # header 텍스트들을 set으로 관리
+    
+    for tag in content_node.find_all(['span', 'p']):
+        style = tag.get('style', '')
+        if 'color:' in style.lower():
+            text = tag.get_text(strip=True)
+            if text:
+                header_elements.append(text)
+                header_texts.add(text)
+    
+    # header 텍스트들을 하나로 합치기
+    header_combined = ' '.join(header_elements) if header_elements else ""
+    
+    # content: 전체 텍스트에서 header 텍스트 제거
+    content_text = full_text
+    for header_text in header_texts:
+        content_text = content_text.replace(header_text, "")
+    
+    # content 텍스트 정리 (연속된 공백 제거)
+    content_text = re.sub(r'\s+', ' ', content_text).strip()
+    
+    # header와 content를 문장 단위로 분리
+    def split_sentences(text):
+        if not text:
+            return None
+        
+        # 문장 단위로 분리 (마침표, 느낌표, 물음표 기준)
+        sentences = re.split(r'[.!?]+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        return sentences if sentences else None
+    
+    header_sentences = split_sentences(header_combined)
+    content_sentences = split_sentences(content_text)
+    
+    return {
+        "header": header_sentences,
+        "sub-header": None,  # sub-header는 null로 설정
+        "content": content_sentences
+    }
+
+def parse_tables(content_node):
+    """테이블 정보를 수집합니다."""
+    if not content_node:
+        return []
+    
+    tables = []
+    
+    for table in content_node.find_all('table'):
+        table_data = {
+            'table_html': str(table),
+            'table_text': table.get_text('\n', strip=True),
+            'table_data': []
+        }
+        
+        # 테이블 데이터를 2차원 배열로 변환
+        for row in table.find_all('tr'):
+            row_data = []
+            for cell in row.find_all(['td', 'th']):
+                cell_text = cell.get_text(strip=True)
+                row_data.append(cell_text)
+            if row_data:  # 빈 행은 제외
+                table_data['table_data'].append(row_data)
+        
+        tables.append(table_data)
+    
+    return tables
+
 def parse_article(url):
     """상세 페이지 파싱: 제목, 날짜, 본문, 첨부 파일 링크 수집"""
     soup = get_soup(url)
+    
     # 제목
     title = ""
-    # 상세 페이지는 상단에 제목 텍스트가 바로 노출됨
     h1 = soup.find(["h1","h2","h3"]) or soup.find("div", class_=re.compile("title|subject"))
     if h1:
         title = h1.get_text(" ", strip=True)
+    
     # 작성일
     date = ""
     meta_text = soup.get_text("\n", strip=True)
     m = re.search(r"작성일\s*([0-9]{4}\.[0-9]{2}\.[0-9]{2})", meta_text)
     if m:
         date = m.group(1)
-    # 본문(가장 긴 컨텐츠 영역 추정)
-    # 보편적으로 기사 본문은 article, #content, .view 같은 영역. 길이가 가장 긴 텍스트 블록을 선택.
-    candidates = []
-    for sel in ["article", "#content", ".board", ".view", ".article", ".read", ".cont", ".txt", "body"]:
-        for node in soup.select(sel):
-            text = node.get_text("\n", strip=True)
-            if text:
-                candidates.append((len(text), text))
-    content = max(candidates, default=(0, ""))[1]
-
-    # 첨부파일 수집 (인천공항 특화 - download.do 링크만 사용)
-    attachments = []
     
-    # download.do 링크를 통한 첨부파일 수집
+    # 본문 영역 찾기 - <div class="con">만 사용
+    main_content_node = soup.find("div", class_="con")
+    
+    # body 구조화 (header, sub-header, content 분류)
+    body = parse_body_structure(main_content_node) if main_content_node else {"header": None, "sub-header": None, "content": None}
+    
+    # 테이블 정보 수집
+    tables = parse_tables(main_content_node) if main_content_node else []
+    
+    # 첨부파일 수집
+    attachments = []
     for a in soup.find_all("a", href=True):
         href = a["href"]
-        # download.do 링크인 경우 (인천공항 특성상 파일 다운로드 링크)
         if "download.do" in href:
-            # 링크 텍스트에서 파일명과 확장자 추출
             link_text = a.get_text(strip=True)
             if link_text and link_text != "미리보기":
-                # 파일 확장자 확인
                 if re.search(r"\.(hwp|pdf|docx?|xlsx?|pptx?|jpg|jpeg|png|gif|bmp|zip|rar|txt)$", link_text, re.I):
-                    # 상대 경로인 경우 절대 경로로 변환
                     if href.startswith('/'):
                         file_url = urljoin(BASE, href)
                     elif href.startswith('http'):
@@ -197,10 +270,7 @@ def parse_article(url):
                     else:
                         file_url = urljoin(url, href)
                     
-                    # 파일명은 링크 텍스트 사용
                     filename = link_text
-                    
-                    # 중복 제거 (URL 기준)
                     if not any(att["url"] == file_url for att in attachments):
                         attachments.append({
                             "filename": filename,
@@ -209,29 +279,30 @@ def parse_article(url):
                         })
 
     # 데이터 정리
-    # title이 없거나 비어있는 경우 content에서 추출
     if not title:
-        extracted_title = extract_title_from_content(content)
+        # content가 리스트인 경우 문자열로 변환
+        content_text = body.get("content", "")
+        if isinstance(content_text, list):
+            content_text = '\n'.join(content_text) if content_text else ""
+        extracted_title = extract_title_from_content(content_text)
         if extracted_title:
             title = extracted_title
     
-    # title 정리 (작성일, 조회수 제거)
     if title:
         title = clean_title(title)
     
-    # content 정리 (제목, 작성일, 조회수 부분 제거)
-    if content:
-        content = clean_content(content)
+    # content 정리는 parse_body_structure에서 이미 처리됨
+    # body["content"]는 이미 리스트 형태로 정리되어 있음
     
     return {
         "title": title or None,
         "date": date or None,
         "url": url,
-        "content": content or None,
+        "body": body,
+        "tables": tables,
         "attachments": attachments,
     }
 
-# find_next_page_url 함수 제거 - 더 이상 필요하지 않음
 
 def crawl(max_pages=None, delay=1.0, out_json="incheon_press.json", start_page=1):
     """
@@ -335,7 +406,7 @@ if __name__ == "__main__":
     # ===== 크롤링 옵션 설정 =====
     
     # 옵션 1: 1페이지부터 새로 시작 (기존 데이터 백업 후 새로 크롤링)
-    result = crawl(max_pages=None, delay=1.0, start_page=1)
+    # result = crawl(max_pages=None, delay=1.0, start_page=1)
     
     # 옵션 2: 특정 페이지까지만 수집 (예: 10페이지)
     # result = crawl(max_pages=10, delay=0.8, start_page=1)
@@ -343,6 +414,6 @@ if __name__ == "__main__":
     # 옵션 3: 특정 페이지부터 이어서 크롤링 (기존 데이터 유지)
     # result = crawl(max_pages=None, delay=1.0, start_page=334)
     
-    # 옵션 4: 테스트용 (5페이지만)
-    # result = crawl(max_pages=5, delay=0.5, start_page=1)
+    # 옵션 4: 테스트용 (1페이지만)
+    result = crawl(max_pages=1, delay=0.5, start_page=1)
     

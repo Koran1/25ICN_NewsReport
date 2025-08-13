@@ -2,5 +2,5 @@ deprecated/
 raw/
 results/
 *.xlsx
-
+check_result.py
 
