@@ -418,11 +418,11 @@ if __name__ == "__main__":
     # result = crawl(max_pages=None, delay=1.0, start_page=1)
     
     # 옵션 2: 특정 페이지까지만 수집 (예: 10페이지)
-    result = crawl(max_pages=134, delay=0.8, start_page=1)
+    # result = crawl(max_pages=134, delay=0.8, start_page=1)
     
     # 옵션 3: 특정 페이지부터 이어서 크롤링 (기존 데이터 유지)
     # result = crawl(max_pages=None, delay=1.0, start_page=334)
     
     # 옵션 4: 테스트용 (1페이지만)
-    # result = crawl(max_pages=1, delay=0.5, start_page=1)
+    result = crawl(max_pages=1, delay=0.5, start_page=1)
     

@@ -17,9 +17,9 @@ app:
 # Database Configuration (if needed)
 database:
   host: "192.168.109.254"
-  port: 5432
+  port: 32533
   database: "graphio"
-  database_schema: "smart_news"
+  database_schema: "inchon"
   user: "root"
   password: "biris.manse"
 
